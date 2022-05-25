@@ -64,7 +64,9 @@ def read_files():
 
 
 def draw_frame(frame_num):
-
+    """
+    
+    """
     global curr, ax, num_edge, t1x, t1y, t2x, t2y
 
     ax.scatter(t1x, t1y,  c='tab:blue', alpha=0.3, edgecolors='none')
@@ -96,11 +98,20 @@ def draw_frame(frame_num):
         curr += 1
 
 def first_item(guh):
+    """
+    This function peeks the first item in an ordered list type data structure.
+
+    return : first item in a list, dictionary, or other list-type
+    """
     return next(iter(guh.items()))
 
 def convert_img_to_mov(image_dir, video_dir):
-    video_name = 'test_movie.avi'
+    """
+    This function reads a directory of images and creates a .avi movie file, treating 
+    the sequential order of each image as consecutive frames.
 
+    return : none 
+    """
     images = [img for img in os.listdir(image_dir) if img.endswith(".png")]
     frame = cv2.imread(os.path.join(image_dir, images[0]))
     height, width, layers = frame.shape
