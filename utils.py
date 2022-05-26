@@ -64,7 +64,9 @@ def read_files():
 
 
 def draw_frame(frame_num):
-
+    """
+    
+    """
     global curr, ax, num_edge, t1x, t1y, t2x, t2y
 
     ax.scatter(t1x, t1y,  c='tab:blue', alpha=0.3, edgecolors='none')
@@ -99,7 +101,6 @@ def first_item(guh):
     return next(iter(guh.items()))
 
 def convert_img_to_mov(image_dir, video_dir):
-    video_name = 'test_movie.avi'
 
     images = [img for img in os.listdir(image_dir) if img.endswith(".png")]
     frame = cv2.imread(os.path.join(image_dir, images[0]))
