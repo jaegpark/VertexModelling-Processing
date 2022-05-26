@@ -124,16 +124,34 @@ def convert_img_to_mov(image_dir, video_dir):
     cv2.destroyAllWindows()
     video.release()
 
+def get_mesectoderm_indices(celltypelist):
+    """
+    
+    return : list of cell indices of the mesectoderm
+    """
+    ans = []
+    for i in range(len(celltypelist)):
+        if celltypelist[i] == 1:
+            ans.append(i)
+
+    return ans
+
+def get_mesectoderm_vertices(num_cell, mes_celllist, Vcellneigh):
+    vert_idx = []
+    for i in range(0, num_cell * 3, 3):
+        if Vcellneigh[i] in mes_celllist or Vcellneigh[i+1] in mes_celllist or Vcellneigh[i+2] in mes_celllist 1:
+            vert_idx.append(i//3)
+    return vert_idx
 
 if __name__ == "__main__":
     num_it = 0
     fn = read_files()
     #print(first_item(fn))
     
-    for i in range(0, 10):
+    for i in range(0, 1):
         frame = fn.popitem(False)
         ds = frame[1]       # fn.popitem(False) returns a (key, value) pair of the first element (FIFO order). [1] grabs the values
-
+        print(ds.variables)
         Vneighs = ds.variables['Vneighs'][:] # 7 rows x 1200 columns 
         num_edge = Vneighs.shape[1]
         vpos = ds.variables['pos'][:]
@@ -149,10 +167,10 @@ if __name__ == "__main__":
 
         draw_frame(0)
         print(frame[0][20:-3])
-        #plt.show()
-        plt.savefig('../frame_images/{fname}.png'.format(fname = frame[0][20:-3]))
+        plt.show()
+        #plt.savefig('../frame_images/{fname}.png'.format(fname = frame[0][20:-3]))
 
-    convert_img_to_mov('../frame_images/', '../videos/test_1.avi')
+    #convert_img_to_mov('../frame_images/', '../videos/test_1.avi')
 
     
 
