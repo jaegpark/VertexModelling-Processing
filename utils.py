@@ -1,7 +1,9 @@
+from types import CellType
 import netCDF4 as nc
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import collections  as mc
+from matplotlib import collections as mc
+from matplotlib import colors
 from collections import OrderedDict
 import glob
 import pprint
@@ -67,7 +69,7 @@ def draw_frame(frame_num):
     """
     
     """
-    global curr, ax, num_edge, t1x, t1y, t2x, t2y
+    global curr, ax, num_edge, t1x, t1y, t2x, t2y, num_cell, mesectoderm_vertices
 
     ax.scatter(t1x, t1y,  c='tab:blue', alpha=0.3, edgecolors='none')
     ax.scatter(t2x, t2y,  c='tab:red', alpha=0.3, edgecolors='none')
@@ -79,6 +81,7 @@ def draw_frame(frame_num):
             cur_p = (vpos_x[curr], vpos_y[curr])
             p = (vpos_x[v], vpos_y[v])
             line = []
+            colours = np.zeros(shape=(1,4))
             point_diff = np.subtract(np.asarray(cur_p), np.asarray(p))
             if np.linalg.norm(point_diff) < box_side_len/2:
                 line.append([cur_p, p]);
@@ -93,9 +96,16 @@ def draw_frame(frame_num):
                     point_diff[1] += box_side_len
                 line.append([cur_p, tuple_sub(cur_p, point_diff)])
                 line.append([p, tuple_add(p, point_diff)])
-            lc = mc.LineCollection(line, linewidths=1)
+            
+            # check if mesectoderm cell edge           
+            if curr in mesectoderm_vertices and v in mesectoderm_vertices:
+                lc = mc.LineCollection(line, linewidths=1, colors=colors.to_rgba('Crimson'))
+            else:
+                lc = mc.LineCollection(line, linewidths=1, colors=(0, 0, 0, 1))
+            
             ax.add_collection(lc)
         curr += 1
+
 
 def first_item(guh):
     """
@@ -124,23 +134,30 @@ def convert_img_to_mov(image_dir, video_dir):
     cv2.destroyAllWindows()
     video.release()
 
-def get_mesectoderm_indices(celltypelist):
+def get_mesectoderm_cell_indices(numcell, celltypelist):
     """
     
     return : list of cell indices of the mesectoderm
     """
     ans = []
-    for i in range(len(celltypelist)):
+    for i in range(numcell):
         if celltypelist[i] == 1:
             ans.append(i)
 
     return ans
 
-def get_mesectoderm_vertices(num_cell, mes_celllist, Vcellneigh):
+def draw_mesectoderm_vertices(mes_vert_idx, vert_px, vert_py, ax):
+    for i in range(0, len(mes_vert_idx)):
+        x = vert_px[mes_vert_idx[i]]
+        y = vert_py[mes_vert_idx[i]]
+        ax.scatter(x, y,  c='tab:green', edgecolors='none')
+    
+
+def get_mesectoderm_vertices(num_v, mes_celllist, Vcellneigh):
     vert_idx = []
-    for i in range(0, num_cell * 3, 3):
-        if Vcellneigh[i] in mes_celllist or Vcellneigh[i+1] in mes_celllist or Vcellneigh[i+2] in mes_celllist 1:
-            vert_idx.append(i//3)
+    for i in range(0, num_v):
+        if (Vcellneigh[3 * i] in mes_celllist) or (Vcellneigh[3*i + 1] in mes_celllist) or (Vcellneigh[3*i+2] in mes_celllist):
+            vert_idx.append(i)
     return vert_idx
 
 if __name__ == "__main__":
@@ -151,22 +168,34 @@ if __name__ == "__main__":
     for i in range(0, 1):
         frame = fn.popitem(False)
         ds = frame[1]       # fn.popitem(False) returns a (key, value) pair of the first element (FIFO order). [1] grabs the values
-        print(ds.variables)
-        Vneighs = ds.variables['Vneighs'][:] # 7 rows x 1200 columns 
+        num_cell = ds.dimensions['Nc'].size
+        num_v = ds.dimensions['Nv'].size
+
+        VCellNeighs = ds.variables['VertexCellNeighbors'][:][0] # size of 3 * num_v : groups of 3 (3 cell neighbours for each vertex)
+        
+        Vneighs = ds.variables['Vneighs'][:] 
         num_edge = Vneighs.shape[1]
         vpos = ds.variables['pos'][:]
         vpos_x = vpos[num_it][::2]
         vpos_y = vpos[num_it][1::2]
-        cell_pos = ds['cellPositions'][:] # 7 rows x 400 columns (200 pairs of x,y)
+        cell_pos = ds['cellPositions'][:] 
+        cell_types = ds['cellType'][num_it]
         box_side_len = ds.variables['BoxMatrix'][0][0];
         curr = 0
+        #print(len(cell_types))
+        #print(num_cell)
+        ''' Get Processed Data '''
+        mesectoderm_cells = get_mesectoderm_cell_indices(numcell=num_cell, celltypelist=cell_types)
+        mesectoderm_vertices = get_mesectoderm_vertices(num_v, mesectoderm_cells, VCellNeighs) 
+        #print(mesectoderm_vertices)
 
         t1x, t1y, t2x, t2y = seperate_celltype(cell_pos[num_it], ds.variables['cellType'][num_it])
         
         fig, ax = plt.subplots()
 
         draw_frame(0)
-        print(frame[0][20:-3])
+        draw_mesectoderm_vertices(mesectoderm_vertices, vpos_x, vpos_y, ax)
+        #print(frame[0][20:-3]) # filename
         plt.show()
         #plt.savefig('../frame_images/{fname}.png'.format(fname = frame[0][20:-3]))
 
