@@ -4,6 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import collections as mc
 from matplotlib import colors
+from matplotlib.patches import Polygon
+from matplotlib.collections import PatchCollection
+
 from collections import OrderedDict
 import glob
 import pprint
@@ -143,22 +146,96 @@ def get_mesectoderm_cell_indices(numcell, celltypelist):
     for i in range(numcell):
         if celltypelist[i] == 1:
             ans.append(i)
-
     return ans
 
-def draw_mesectoderm_vertices(mes_vert_idx, vert_px, vert_py, ax):
+def get_mesectoderm_vertex_coords(mes_vert_idx, vert_px, vert_py, ax):
+    x, y = [], []
     for i in range(0, len(mes_vert_idx)):
-        x = vert_px[mes_vert_idx[i]]
-        y = vert_py[mes_vert_idx[i]]
-        ax.scatter(x, y,  c='tab:green', edgecolors='none')
+        x.append(vert_px[mes_vert_idx[i]])
+        y.append(vert_py[mes_vert_idx[i]])
+    return x, y
     
 
-def get_mesectoderm_vertices(num_v, mes_celllist, Vcellneigh):
+def get_mesectoderm_vertex_indices(num_v, mes_celllist, Vcellneigh):
     vert_idx = []
     for i in range(0, num_v):
         if (Vcellneigh[3 * i] in mes_celllist) or (Vcellneigh[3*i + 1] in mes_celllist) or (Vcellneigh[3*i+2] in mes_celllist):
             vert_idx.append(i)
     return vert_idx
+
+def get_cell_vertices(cell_num, cell_vertices):
+    ans = []
+    for i in range(len(cell_vertices[0])):
+        if cell_vertices[cell_num][i] != -1:
+            ans.append(cell_vertices[cell_num][i])
+    ans = [int(a) for a in ans]
+    return ans
+
+def get_vertex_coords(vertex_ind, vposx, vposy):
+    if isinstance(vertex_ind, list):
+        xs, ys = [], []
+        for i in range(len(vertex_ind)):
+            xs.append(vposx[vertex_ind[i]])
+            ys.append(vposy[vertex_ind[i]])
+        return xs, ys
+    else:
+        return vposx[vertex_ind], vposy[vertex_ind]
+    
+def draw_mesectoderm_filled(mesectoderm_cell_indices, cell_vertices, vposx, vposy, ax):
+    patches = []
+    if isinstance(mesectoderm_cell_indices, list):
+        for idx in mesectoderm_cell_indices:
+            vertices = get_cell_vertices(idx, cell_vertices)
+            coordsx, coordsy = get_vertex_coords(vertices, vposx, vposy)
+            poly = Polygon(np.c_[coordsx, coordsy], closed=True)
+            patches.append(poly)
+            #ax.fill(coordsx, coordsy, facecolor='lightsalmon')
+    else:
+        vertices = get_cell_vertices(mesectoderm_cell_indices, cell_vertices)
+        coordsx, coordsy = get_vertex_coords(vertices, vposx, vposy)
+        poly = Polygon(np.c_[coordsx, coordsy], closed=True)
+        patches.append(poly)
+        #ax.fill(coordsx, coordsy, facecolor='lightsalmon')
+    p = PatchCollection(patches, alpha=0.4)
+    ax.add_collection(p)
+
+def find_mesectoderm_boundary(numv, Vneighs, Vcellneighs, cellType):
+    """
+    get list of vertices along boundary edge
+    """
+    Vneighs_trans = np.reshape(Vneighs, (-1, 3))
+    Vcellneighs_trans = np.reshape(Vcellneighs, (-1, 3))
+    ans = []
+    for i in range(numv):
+        curr_v_neighbours = Vneighs_trans[i]
+        curr_v_cellneighs = Vcellneighs_trans[i]
+        for neighbour in curr_v_neighbours:
+            second_v_cellneighs = Vcellneighs_trans[neighbour]
+            common_cell_neighbours = list(set(curr_v_cellneighs).intersection(second_v_cellneighs))
+            #print(common_cell_neighbours)
+            temp_mes_count, temp_non_count = 0, 0
+            # Check if it has 1 mesectoderm
+            '''
+            check if both cells have same mesectoderm neighbour
+            check if both cells have at least 1 mesectoderm and 1 nonmesectoderm neighbour
+            '''
+
+            for cell in common_cell_neighbours:
+                if cellType[cell] == 1:
+                    temp_mes_count += 1
+                else:
+                    temp_non_count += 1
+            if temp_mes_count == 1 and temp_non_count == 1:
+                ans.append(i)
+                ans.append(neighbour)
+    return set(ans)
+            
+def draw_mesectoderm_boundary(vposx, vposy, mes_vertices, ax):
+    x = [vposx[a] for a in mes_vertices]
+    y = [vposy[a] for a in mes_vertices]
+    ax.scatter(x, y, c="tab:green")
+
+
 
 if __name__ == "__main__":
     num_it = 0
@@ -170,9 +247,10 @@ if __name__ == "__main__":
         ds = frame[1]       # fn.popitem(False) returns a (key, value) pair of the first element (FIFO order). [1] grabs the values
         num_cell = ds.dimensions['Nc'].size
         num_v = ds.dimensions['Nv'].size
-
-        VCellNeighs = ds.variables['VertexCellNeighbors'][:][0] # size of 3 * num_v : groups of 3 (3 cell neighbours for each vertex)
         
+        VCellNeighs = ds.variables['VertexCellNeighbors'][:][0] # size of 3 * num_v : groups of 3 (3 cell neighbours for each vertex)
+        cellVertices = np.reshape(ds.variables['cellVer'][:][0], (-1, 16))  # 2D array: i-th row has the list of vertex indices of the i-th cell 
+        cellVerNum = ds.variables['cellVerNum'][:]
         Vneighs = ds.variables['Vneighs'][:] 
         num_edge = Vneighs.shape[1]
         vpos = ds.variables['pos'][:]
@@ -186,15 +264,23 @@ if __name__ == "__main__":
         #print(num_cell)
         ''' Get Processed Data '''
         mesectoderm_cells = get_mesectoderm_cell_indices(numcell=num_cell, celltypelist=cell_types)
-        mesectoderm_vertices = get_mesectoderm_vertices(num_v, mesectoderm_cells, VCellNeighs) 
+        mesectoderm_vertices = get_mesectoderm_vertex_indices(num_v, mesectoderm_cells, VCellNeighs) 
         #print(mesectoderm_vertices)
+        mesectoderm_boundary_vertices = find_mesectoderm_boundary(num_v, Vneighs, VCellNeighs, cell_types)
+        
 
         t1x, t1y, t2x, t2y = seperate_celltype(cell_pos[num_it], ds.variables['cellType'][num_it])
         
         fig, ax = plt.subplots()
 
         draw_frame(0)
-        draw_mesectoderm_vertices(mesectoderm_vertices, vpos_x, vpos_y, ax)
+        '''
+        TODO: make a way of checking and excluding cells at the edges of POV... or else poly will fill them across the screen
+        '''
+        mesectoderm_vertex_coords_x , mesectoderm_vertex_coords_y = get_mesectoderm_vertex_coords(mesectoderm_vertices, vpos_x, vpos_y, ax)
+        #draw_mesectoderm_filled(mesectoderm_cells, cellVertices, vpos_x, vpos_y, ax)
+        draw_mesectoderm_boundary(vpos_x, vpos_y, mesectoderm_boundary_vertices, ax)
+
         #print(frame[0][20:-3]) # filename
         plt.show()
         #plt.savefig('../frame_images/{fname}.png'.format(fname = frame[0][20:-3]))
