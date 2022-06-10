@@ -6,12 +6,13 @@ from matplotlib import collections as mc
 from matplotlib import colors
 from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
-
+from scipy.interpolate import interp1d
 from collections import OrderedDict
 import glob
 import pprint
 import cv2
 import os
+from PIL import Image
 
 def get_dataset(fname):
     """
@@ -84,7 +85,6 @@ def draw_frame(frame_num):
             cur_p = (vpos_x[curr], vpos_y[curr])
             p = (vpos_x[v], vpos_y[v])
             line = []
-            colours = np.zeros(shape=(1,4))
             point_diff = np.subtract(np.asarray(cur_p), np.asarray(p))
             if np.linalg.norm(point_diff) < box_side_len/2:
                 line.append([cur_p, p]);
@@ -199,13 +199,14 @@ def draw_mesectoderm_filled(mesectoderm_cell_indices, cell_vertices, vposx, vpos
     p = PatchCollection(patches, alpha=0.4)
     ax.add_collection(p)
 
-def find_mesectoderm_boundary(numv, Vneighs, Vcellneighs, cellType):
+def find_mesectoderm_boundary(numv, Vneighs, Vcellneighs, cellType, vposx, vposy):
     """
     get list of vertices along boundary edge
     """
     Vneighs_trans = np.reshape(Vneighs, (-1, 3))
     Vcellneighs_trans = np.reshape(Vcellneighs, (-1, 3))
-    ans = []
+    mes_ver_list = []
+    mes_lines = []
     for i in range(numv):
         curr_v_neighbours = Vneighs_trans[i]
         curr_v_cellneighs = Vcellneighs_trans[i]
@@ -225,16 +226,68 @@ def find_mesectoderm_boundary(numv, Vneighs, Vcellneighs, cellType):
                     temp_mes_count += 1
                 else:
                     temp_non_count += 1
-            if temp_mes_count == 1 and temp_non_count == 1:
-                ans.append(i)
-                ans.append(neighbour)
-    return set(ans)
             
-def draw_mesectoderm_boundary(vposx, vposy, mes_vertices, ax):
+            if temp_mes_count == 1 and temp_non_count == 1:
+
+                mes_ver_list.append(i)
+                mes_ver_list.append(neighbour)
+                mes_lines.append([(vposx[i], vposy[i]), (vposx[neighbour], vposy[neighbour])])
+                # TODO: improve efficiency by removing double counting of lines
+    return set(mes_ver_list), mes_lines
+            
+def draw_line(p1, p2, colour, ax):
+    
+    """
+    draws a line given two coordinate tuples, following the periodic boundary conditions
+    """
+    global box_side_len
+    line = []
+    point_diff = np.subtract(np.asarray(p1), np.asarray(p2))
+    if np.linalg.norm(point_diff) < box_side_len/2:
+        line.append([p1, p2]);
+    else:
+        if point_diff[0] > box_side_len/2:
+            point_diff[0] -= box_side_len
+        if point_diff[0] < -box_side_len/2:
+            point_diff[0] += box_side_len
+        if point_diff[1] > box_side_len/2:
+            point_diff[1] -= box_side_len
+        if point_diff[1] < -box_side_len/2:
+            point_diff[1] += box_side_len
+        line.append([p1, tuple_sub(p1, point_diff)])
+        line.append([p2, tuple_add(p2, point_diff)])
+    
+    lc = mc.LineCollection(line, linewidths=1, colors=colors.to_rgba(colour))
+    ax.add_collection(lc)
+
+
+def draw_mesectoderm_vertices(vposx, vposy, mes_vertices, ax):
     x = [vposx[a] for a in mes_vertices]
     y = [vposy[a] for a in mes_vertices]
-    ax.scatter(x, y, c="tab:green")
+    ax.scatter(x, y, c="tab:green", s=0.1)
+    return x, y
 
+def sweeper(img_path):
+    """
+    sweeper takes in an image and returns groupings of pixels corresponding to the top/bottom boundary of the mesectoderm
+    """
+    im = cv2.imread(img_path)
+    im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+    th, im_gray_th = cv2.threshold(im_gray, 127, 255, cv2.THRESH_OTSU)
+    width, height = im_gray_th.shape
+    
+    for i in range(width):
+        for j in range(height):
+            pass
+        '''
+        TODO: complete sweeper algorithm, save collections of pixels...
+        '''
+
+    cv2.imwrite('otsu.jpg', im_gray_th)
+
+    #im = np.array(Image.open('{path}'.format(path=img_path)).convert('L')) #Opens a picture in grayscale
+    #gr_im= Image.fromarray(im).save('gray.png')
+    
 
 
 if __name__ == "__main__":
@@ -260,32 +313,39 @@ if __name__ == "__main__":
         cell_types = ds['cellType'][num_it]
         box_side_len = ds.variables['BoxMatrix'][0][0];
         curr = 0
+        fig, ax = plt.subplots()
+
         #print(len(cell_types))
         #print(num_cell)
         ''' Get Processed Data '''
         mesectoderm_cells = get_mesectoderm_cell_indices(numcell=num_cell, celltypelist=cell_types)
         mesectoderm_vertices = get_mesectoderm_vertex_indices(num_v, mesectoderm_cells, VCellNeighs) 
-        #print(mesectoderm_vertices)
-        mesectoderm_boundary_vertices = find_mesectoderm_boundary(num_v, Vneighs, VCellNeighs, cell_types)
-        
+        mesectoderm_boundary_vertices, mesectoderm_boundary_lines = find_mesectoderm_boundary(num_v, Vneighs, VCellNeighs, cell_types, vpos_x, vpos_y)
+        mesectoderm_vertex_coords_x , mesectoderm_vertex_coords_y = get_mesectoderm_vertex_coords(mesectoderm_vertices, vpos_x, vpos_y, ax)
+
 
         t1x, t1y, t2x, t2y = seperate_celltype(cell_pos[num_it], ds.variables['cellType'][num_it])
         
-        fig, ax = plt.subplots()
 
-        draw_frame(0)
-        '''
-        TODO: make a way of checking and excluding cells at the edges of POV... or else poly will fill them across the screen
-        '''
-        mesectoderm_vertex_coords_x , mesectoderm_vertex_coords_y = get_mesectoderm_vertex_coords(mesectoderm_vertices, vpos_x, vpos_y, ax)
-        #draw_mesectoderm_filled(mesectoderm_cells, cellVertices, vpos_x, vpos_y, ax)
-        draw_mesectoderm_boundary(vpos_x, vpos_y, mesectoderm_boundary_vertices, ax)
+        #draw_frame(0)
+     
+        bcoords_x, bcoords_y = draw_mesectoderm_vertices(vpos_x, vpos_y, mesectoderm_boundary_vertices, ax)    # ALSO DRAWS THE BOUNDARY
+        plt.axis([0, 20, 8, 12])
+        for lines in mesectoderm_boundary_lines:
+            draw_line(lines[0], lines[1], 'tab:green', ax)
+        
+        plt.axis('off')
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
 
-        #print(frame[0][20:-3]) # filename
-        plt.show()
-        #plt.savefig('../frame_images/{fname}.png'.format(fname = frame[0][20:-3]))
+        #plt.show()
+        filename = '../frame_images/{fname}.png'.format(fname = frame[0][20:-3])
+        plt.savefig(filename, bbox_inches='tight', pad_inches=0)
 
     #convert_img_to_mov('../frame_images/', '../videos/test_1.avi')
 
-    
-
+    '''
+        TODO: 
+        3. make calculation functions   
+    '''
+    sweeper(filename)
