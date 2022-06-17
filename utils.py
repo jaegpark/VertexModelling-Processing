@@ -1,4 +1,7 @@
+from tkinter import Toplevel
+from turtle import right
 from types import CellType
+from cv2 import rotate
 import netCDF4 as nc
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,10 +9,8 @@ from matplotlib import collections as mc
 from matplotlib import colors
 from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
-from scipy.interpolate import interp1d
 from collections import OrderedDict
 import glob
-import pprint
 import cv2
 import os
 from PIL import Image
@@ -273,27 +274,104 @@ def sweeper(img_path):
     """
     im = cv2.imread(img_path)
     im_gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-    th, im_gray_th = cv2.threshold(im_gray, 127, 255, cv2.THRESH_OTSU)
-    width, height = im_gray_th.shape
-    
+    th, im_gray_th = cv2.threshold(im_gray, 127, 255, cv2.THRESH_BINARY)
+    height, width = im_gray_th.shape
+    upper_boundary = []
+    lower_boundary = []
+
     for i in range(width):
+        column = []
         for j in range(height):
-            pass
-        '''
-        TODO: complete sweeper algorithm, save collections of pixels...
-        '''
+            # found pixel
+            #print(im_gray_th[j])
+            if im_gray_th[j][i] == 0:   # TODO: change this to actual y value
+                column.append([i, j])
+
+        # post process column by taking the first half as upper mes, second half as lower mes  
+        # THIS METHOD DOES NOT WORK... WILL INSTEAD TAKE TOPMOST POINT AND BOTTOMMOST POINT      
+        #upper = np.average(column[:len(column)//2], axis=1)
+        #lower = np.average(column[len(column)//2:], axis=1)
+        upper = column[0]
+        lower = column[-1]
+        upper_boundary.append(upper)  # list of points, i'th list contains all points corresponding to the i'th column in the image
+        lower_boundary.append(lower)
 
     cv2.imwrite('otsu.jpg', im_gray_th)
-
-    #im = np.array(Image.open('{path}'.format(path=img_path)).convert('L')) #Opens a picture in grayscale
-    #gr_im= Image.fromarray(im).save('gray.png')
+    return upper_boundary, lower_boundary
     
+def step_func(val):
+    return 1 if val <= 3 else 0
 
+def calc_pixel_widths(upper_tuple_list, lower_tuple_list, N, width):
+    distances = []
+    for i in range(width):
+        mean_top = np.mean(upper_tuple_list[i])
+        mean_bot = np.mean(lower_tuple_list[i])
+        distances.append(mean_top-mean_bot)
+    
+    return distances
+
+def calc_roughness(rotated_points):
+    numpixels = len(rotated_points)
+    '''
+    First, find h bar
+    '''
+    # h-bar calculations:
+    xaxis = rotate_points[0][1]
+    h_tot = 0
+    for i in range(len(rotated_points)):
+        h_tot += np.abs(rotated_points[i][1] - xaxis)
+    h_bar = h_tot / numpixels
+
+    '''
+    Now find w^2
+    '''
+    temp = 0
+    for i in range(len(rotated_points)):
+        h_i = np.abs(rotated_points[i][1] - xaxis)
+        temp += np.power(h_i-h_bar, 2)
+    w2 = temp/numpixels
+
+    return np.sqrt(w2)
+    
+def calc_mes_internalization(upper_list, lower_list):
+    distances = np.delete(np.subtract(upper_list, lower_list), 0, 1)
+    s = [step_func(x) for x in distances]
+    ans = np.sum(s)/len(upper_list)
+    return ans
+
+def rotate_points(upper_points_list, bottom_points_list, N):
+    top_left = upper_points_list[0]
+    top_right = upper_points_list[-1]
+    bot_left = bottom_points_list[0]
+    bot_right = bottom_points_list[-1]
+   
+    #print(top_left[0], top_left[1], top_right[0], top_right[1])
+    slope_top = (top_right[1] - top_left[1])/(top_right[0] - top_left[0])
+    print(slope_top)
+    slope_bot = (bot_right[1] - bot_left[1])/(bot_right[0] - bot_left[0])
+    theta_r_top = np.arctan(slope_top)
+    theta_r_bot = np.arctan(slope_bot)
+    if slope_top < 0:
+        theta_r_top = - theta_r_top
+    if slope_bot < 0:
+        theta_r_bot = - theta_r_bot
+    Rt = [[np.cos(theta_r_top), -np.sin(theta_r_top)], 
+         [np.sin(theta_r_top), np.cos(theta_r_top)]]
+    Rb = [[np.cos(theta_r_bot), -np.sin(theta_r_bot)], 
+         [np.sin(theta_r_bot), np.cos(theta_r_bot)]]
+    
+    for i in range(len(upper_points_list)):
+        upper_points_list[i] = np.matmul(Rt, upper_points_list[i])
+    
+    for i in range(len(bottom_points_list)):
+        bottom_points_list[i] = np.matmul(Rb, bottom_points_list[i])
+
+    return upper_points_list, bottom_points_list
 
 if __name__ == "__main__":
     num_it = 0
     fn = read_files()
-    #print(first_item(fn))
     
     for i in range(0, 1):
         frame = fn.popitem(False)
@@ -346,6 +424,8 @@ if __name__ == "__main__":
 
     '''
         TODO: 
-        3. make calculation functions   
+        3. find a way to convert the saved images and the coordinates...
     '''
-    sweeper(filename)
+    upperboundary, lowerboundary = sweeper(filename)
+    r_upper_boundary, r_lower_boundary = rotate_points(upper_points_list=upperboundary, bottom_points_list=lowerboundary, N=1)
+    
