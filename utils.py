@@ -294,13 +294,13 @@ def sweeper(img_path):
                 If the column is empty, then we want to use an interpolated function. 
                 On the first pass, we can insert a 0 for now so that we can search and replace later.
             '''
-            column.append(0)
-            column.append(0)
-
-        upper = column[0]
-        lower = column[-1]
-        upper_boundary.append(upper)  # list of points, i'th list contains all points corresponding to the i'th column in the image
-        lower_boundary.append(lower)
+            lower_boundary.append(0)
+            upper_boundary.append(0)
+        else:
+            upper = column[0]
+            lower = column[-1]
+            upper_boundary.append(upper)  # list of points, i'th list contains all points corresponding to the i'th column in the image
+            lower_boundary.append(lower)
 
 
     #cv2.imwrite('otsu.jpg', im_gray_th)
@@ -321,11 +321,20 @@ def sweeper(img_path):
                 future = upper_boundary[i]
                 break
         upper_boundary[0] = future
+    if lower_boundary[0] == 0:
+        future = []
+        for i in range(width):
+            if lower_boundary[i] != 0:
+                future = lower_boundary[i]
+                break
+        lower_boundary[0] = future
     
     for i in range(width):
         if upper_boundary[i] == 0:
             future = []
-            previous = upper_boundary[i-1]
+            if i != 0: previous = upper_boundary[i-1] 
+            else: previous = upper_boundary[0]
+
             for j in range(i, width):
                 if upper_boundary[j] != 0:
                     future = upper_boundary[j]
@@ -333,10 +342,16 @@ def sweeper(img_path):
             if len(future) == 0:    # unable to find a future point
                 upper_boundary[i] = previous
             else:
-                upper_boundary[i] = [i, previous[1] + (future[1]-previous[1])/(future[0]-previous[0])]
+                if future == previous:
+                    upper_boundary[i] = previous
+                else:
+                    #print("future point: {}, previous point: {}".format(future, previous))
+                    upper_boundary[i] = [i, previous[1] + (future[1]-previous[1])/(future[0]-previous[0])]
         if lower_boundary[i] == 0:
             future = []
-            previous = lower_boundary[i-1]
+            if i != 0: previous = lower_boundary[i-1] 
+            else: previous = lower_boundary[0]
+
             for j in range(i, width):
                 if lower_boundary[j] != 0:
                     future = lower_boundary[j]
@@ -344,7 +359,10 @@ def sweeper(img_path):
             if len(future) == 0:    # unable to find a future point
                 lower_boundary[i] = previous
             else:
-                lower_boundary[i] = [i, previous[1] + (future[1]-previous[1])/(future[0]-previous[0])]
+                if future == previous:
+                    lower_boundary[i] = previous
+                else:
+                    lower_boundary[i] = [i, previous[1] + (future[1]-previous[1])/(future[0]-previous[0])]
         
     return upper_boundary, lower_boundary
     
@@ -427,7 +445,7 @@ if __name__ == "__main__":
     fn = read_files("..\celldiv2.8-FIG4DATA\SLOWcelldivON\cellGPU_mesectoderm-ectoderm_02082021\data\*.nc")
 
     roughness_graph = []
-    read_table = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    read_table = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0]
     for i in range(0, len(read_table)):
         if read_table[i] == 1 and i == 0:
             roughness_graph = np.append([roughness_graph], np.array([np.genfromtxt('roughness_graph_' + str(10) + '.csv', delimiter=',')]).T)
@@ -437,15 +455,15 @@ if __name__ == "__main__":
             #print(roughness_graph)
 
         elif read_table[i] == 1 and i != 0:
-            roughness_graph = np.append([roughness_graph], np.genfromtxt('roughness_graph_' + str(i+1) + '.csv', delimiter=',').T)
-            print("guh")
+            roughness_graph = np.append([roughness_graph], np.genfromtxt('roughness_graph_' + str(i) + '.csv', delimiter=',').T)
             for j in range(0, 120):
                 k = fn.popitem(False)
                 if j == 0 : print(k[0][-20:-1])
-
-    roughness_graph = np.reshape(roughness_graph, (1, -1))    
-    print(roughness_graph.shape)
-    for j in range(1, 2):
+    
+    if read_table[0] == 1:
+        roughness_graph = np.reshape(roughness_graph, (-1, 120))    
+        print(roughness_graph.shape)
+    for j in range(2, 4):
         pid_rough = []
         pid_name = ""
         for i in range(0, 120):
